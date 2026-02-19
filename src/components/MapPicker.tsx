@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
 import Icon from "@/components/ui/icon";
+import { useToast } from "@/hooks/use-toast";
 
 const createIcon = (color: string) =>
   L.divIcon({
@@ -16,11 +17,7 @@ const createIcon = (color: string) =>
 const cyanIcon = createIcon("hsl(195,100%,50%)");
 const purpleIcon = createIcon("hsl(270,80%,60%)");
 
-interface ClickHandlerProps {
-  onMapClick: (lat: number, lng: number) => void;
-}
-
-const ClickHandler = ({ onMapClick }: ClickHandlerProps) => {
+const ClickHandler = ({ onMapClick }: { onMapClick: (lat: number, lng: number) => void }) => {
   useMapEvents({
     click(e) {
       onMapClick(e.latlng.lat, e.latlng.lng);
@@ -29,17 +26,13 @@ const ClickHandler = ({ onMapClick }: ClickHandlerProps) => {
   return null;
 };
 
-interface FlyToProps {
-  center: [number, number] | null;
-}
-
-const FlyTo = ({ center }: FlyToProps) => {
+const FlyTo = ({ center, flyKey }: { center: [number, number] | null; flyKey: number }) => {
   const map = useMap();
   useEffect(() => {
-    if (center) {
+    if (center && flyKey > 0) {
       map.flyTo(center, 16, { duration: 1 });
     }
-  }, [center, map]);
+  }, [center, flyKey, map]);
   return null;
 };
 
@@ -68,10 +61,11 @@ const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
 };
 
 const MapPicker = ({ mode, fromPos, toPos, onSelect, onAddressResolved }: MapPickerProps) => {
+  const { toast } = useToast();
   const [geoLoading, setGeoLoading] = useState(false);
   const [flyTarget, setFlyTarget] = useState<[number, number] | null>(null);
+  const [flyKey, setFlyKey] = useState(0);
   const defaultCenter: [number, number] = [55.7558, 37.6173];
-  const mapRef = useRef<boolean>(false);
 
   const handleClick = useCallback(
     async (lat: number, lng: number) => {
@@ -82,31 +76,43 @@ const MapPicker = ({ mode, fromPos, toPos, onSelect, onAddressResolved }: MapPic
     [onSelect, onAddressResolved]
   );
 
-  const handleGeolocate = useCallback(async () => {
-    if (!navigator.geolocation) return;
+  const handleGeolocate = useCallback(() => {
+    if (!navigator.geolocation) {
+      toast({ title: "Геолокация недоступна", description: "Ваш браузер не поддерживает геолокацию", variant: "destructive" });
+      return;
+    }
+
     setGeoLoading(true);
+    toast({ title: "Определяем местоположение...", description: "Разрешите доступ к геопозиции в браузере" });
+
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         onSelect(lat, lng);
         setFlyTarget([lat, lng]);
+        setFlyKey((k) => k + 1);
         const address = await reverseGeocode(lat, lng);
         onAddressResolved(address);
         setGeoLoading(false);
+        toast({ title: "Местоположение определено", description: address });
       },
-      () => {
+      (err) => {
         setGeoLoading(false);
+        const messages: Record<number, string> = {
+          1: "Вы запретили доступ к геопозиции. Разрешите в настройках браузера.",
+          2: "Не удалось определить местоположение. Попробуйте ещё раз.",
+          3: "Время ожидания истекло. Проверьте GPS и попробуйте снова.",
+        };
+        toast({
+          title: "Ошибка геолокации",
+          description: messages[err.code] || "Неизвестная ошибка",
+          variant: "destructive",
+        });
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
-  }, [onSelect, onAddressResolved]);
-
-  useEffect(() => {
-    if (!mapRef.current && !fromPos && !toPos) {
-      mapRef.current = true;
-    }
-  }, [fromPos, toPos]);
+  }, [onSelect, onAddressResolved, toast]);
 
   const center = mode === "from" ? fromPos || defaultCenter : toPos || fromPos || defaultCenter;
 
@@ -127,12 +133,13 @@ const MapPicker = ({ mode, fromPos, toPos, onSelect, onAddressResolved }: MapPic
       <div className="absolute top-3 right-3 z-[1000]">
         <Button
           size="sm"
+          type="button"
           onClick={handleGeolocate}
           disabled={geoLoading}
           className="bg-background/80 backdrop-blur-md border border-neon-cyan/20 text-neon-cyan hover:bg-neon-cyan/10 text-xs gap-1.5"
         >
           <Icon name={geoLoading ? "Loader2" : "LocateFixed"} size={14} className={geoLoading ? "animate-spin" : ""} />
-          Моё местоположение
+          {geoLoading ? "Определяю..." : "Моё местоположение"}
         </Button>
       </div>
 
@@ -143,12 +150,9 @@ const MapPicker = ({ mode, fromPos, toPos, onSelect, onAddressResolved }: MapPic
         zoomControl={false}
         attributionControl={false}
       >
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        />
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
         <ClickHandler onMapClick={handleClick} />
-        <FlyTo center={flyTarget} />
-
+        <FlyTo center={flyTarget} flyKey={flyKey} />
         {fromPos && <Marker position={fromPos} icon={cyanIcon} />}
         {toPos && <Marker position={toPos} icon={purpleIcon} />}
       </MapContainer>
