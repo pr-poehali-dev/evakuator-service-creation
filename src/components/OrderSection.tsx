@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Icon from "@/components/ui/icon";
 import { useToast } from "@/hooks/use-toast";
+import MapPicker from "@/components/MapPicker";
 
 const vehicleTypes = [
   { value: "sedan", label: "Легковой", icon: "Car" },
@@ -15,6 +15,9 @@ const vehicleTypes = [
 const OrderSection = () => {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
+  const [mapMode, setMapMode] = useState<"from" | "to">("from");
+  const [fromPos, setFromPos] = useState<[number, number] | null>(null);
+  const [toPos, setToPos] = useState<[number, number] | null>(null);
   const [form, setForm] = useState({
     from: "",
     to: "",
@@ -27,6 +30,22 @@ const OrderSection = () => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleMapSelect = (lat: number, lng: number) => {
+    if (mapMode === "from") {
+      setFromPos([lat, lng]);
+    } else {
+      setToPos([lat, lng]);
+    }
+  };
+
+  const handleAddressResolved = (address: string) => {
+    if (mapMode === "from") {
+      updateField("from", address);
+    } else {
+      updateField("to", address);
+    }
+  };
+
   const handleSubmit = () => {
     toast({
       title: "Заявка принята!",
@@ -34,6 +53,8 @@ const OrderSection = () => {
     });
     setStep(1);
     setForm({ from: "", to: "", vehicle: "", phone: "", comment: "" });
+    setFromPos(null);
+    setToPos(null);
   };
 
   return (
@@ -51,11 +72,11 @@ const OrderSection = () => {
             ВЫЗВАТЬ <span className="text-neon-cyan text-glow-cyan">ЭВАКУАТОР</span>
           </h2>
           <p className="text-muted-foreground max-w-md mx-auto">
-            Заполните форму — мы найдём ближайший эвакуатор и отправим его к вам
+            Укажите точки на карте или определите геопозицию — мы найдём ближайший эвакуатор
           </p>
         </div>
 
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <div className="flex items-center justify-center gap-2 mb-8">
             {[1, 2, 3].map((s) => (
               <button
@@ -83,16 +104,53 @@ const OrderSection = () => {
             ))}
           </div>
 
-          <div className="rounded-2xl border border-neon-cyan/10 bg-card/50 backdrop-blur-sm p-8 box-glow-cyan">
+          <div className="rounded-2xl border border-neon-cyan/10 bg-card/50 backdrop-blur-sm p-6 md:p-8 box-glow-cyan">
             {step === 1 && (
-              <div className="space-y-6 animate-fade-in">
-                <h3 className="text-lg font-semibold text-foreground mb-2">Откуда и куда?</h3>
-                <div className="space-y-4">
+              <div className="space-y-5 animate-fade-in">
+                <h3 className="text-lg font-semibold text-foreground">Откуда и куда?</h3>
+
+                <MapPicker
+                  mode={mapMode}
+                  fromPos={fromPos}
+                  toPos={toPos}
+                  onSelect={handleMapSelect}
+                  onAddressResolved={handleAddressResolved}
+                />
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setMapMode("from")}
+                    className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all ${
+                      mapMode === "from"
+                        ? "border-neon-cyan bg-neon-cyan/10 text-neon-cyan"
+                        : "border-neon-cyan/10 bg-secondary/30 text-muted-foreground hover:border-neon-cyan/20"
+                    }`}
+                  >
+                    <Icon name="MapPin" size={16} />
+                    Точка подачи
+                    {fromPos && <Icon name="Check" size={14} className="ml-auto text-neon-green" />}
+                  </button>
+                  <button
+                    onClick={() => setMapMode("to")}
+                    className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all ${
+                      mapMode === "to"
+                        ? "border-neon-purple bg-neon-purple/10 text-neon-purple"
+                        : "border-neon-purple/10 bg-secondary/30 text-muted-foreground hover:border-neon-purple/20"
+                    }`}
+                  >
+                    <Icon name="Flag" size={16} />
+                    Точка доставки
+                    {toPos && <Icon name="Check" size={14} className="ml-auto text-neon-green" />}
+                  </button>
+                </div>
+
+                <div className="space-y-3">
                   <div className="relative">
                     <Icon name="MapPin" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-cyan" />
                     <Input
                       placeholder="Адрес подачи"
                       value={form.from}
+                      onFocus={() => setMapMode("from")}
                       onChange={(e) => updateField("from", e.target.value)}
                       className="pl-10 bg-secondary/50 border-neon-cyan/10 focus:border-neon-cyan/30 text-foreground placeholder:text-muted-foreground"
                     />
@@ -102,11 +160,22 @@ const OrderSection = () => {
                     <Input
                       placeholder="Адрес доставки"
                       value={form.to}
+                      onFocus={() => setMapMode("to")}
                       onChange={(e) => updateField("to", e.target.value)}
                       className="pl-10 bg-secondary/50 border-neon-cyan/10 focus:border-neon-cyan/30 text-foreground placeholder:text-muted-foreground"
                     />
                   </div>
                 </div>
+
+                {fromPos && toPos && (
+                  <div className="p-3 rounded-xl bg-neon-green/5 border border-neon-green/20 flex items-center gap-3">
+                    <Icon name="Route" size={18} className="text-neon-green shrink-0" />
+                    <p className="text-sm text-muted-foreground">
+                      Маршрут определён — обе точки установлены на карте
+                    </p>
+                  </div>
+                )}
+
                 <Button
                   className="w-full bg-gradient-to-r from-neon-cyan to-neon-purple text-background font-semibold py-6"
                   onClick={() => setStep(2)}
